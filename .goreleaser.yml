@@ -16,19 +16,13 @@ builds:
       - amd64
       - arm
       - arm64
+    goarm:
+      - 7
 archives:
   -
+    name_template: "{{ .ProjectName }}-v{{ .Version }}-{{ .Os }}-{{ .Arch }}"
     replacements:
-      darwin: Darwin
-      linux: Linux
-      windows: Windows
-      386: i386
-      amd64: x86_64
-    format: gz
-    format_overrides:
-    - goos: windows
-      format: zip
-    files:
-    - none*
+      darwin: osx
+    format: zip
 checksum:
   name_template: "checksums.txt"
