@@ -15,6 +15,7 @@ import (
 	"io"
 	"io/ioutil"
 	"log"
+	"math/rand"
 	"mime"
 	"net/http"
 	"net/url"
@@ -229,6 +230,9 @@ a non root folder as its starting point.
 			Name: "service_account_file",
 			Help: "Service Account Credentials JSON file path \nLeave blank normally.\nNeeded only if you want use SA instead of interactive login.",
 		}, {
+			Name: "service_account_file_path",
+			Help: "Service Account Credentials JSON file path .",
+		},{
 			Name:     "service_account_credentials",
 			Help:     "Service Account Credentials JSON blob\nLeave blank normally.\nNeeded only if you want use SA instead of interactive login.",
 			Hide:     fs.OptionHideConfigurator,
@@ -510,6 +514,7 @@ type Options struct {
 	Scope                     string               `config:"scope"`
 	RootFolderID              string               `config:"root_folder_id"`
 	ServiceAccountFile        string               `config:"service_account_file"`
+	ServiceAccountFilePath    string               `config:"service_account_file_path"`
 	ServiceAccountCredentials string               `config:"service_account_credentials"`
 	TeamDriveID               string               `config:"team_drive"`
 	AuthOwnerOnly             bool                 `config:"auth_owner_only"`
@@ -562,6 +567,10 @@ type Fs struct {
 	grouping         int32               // number of IDs to search at once in ListR - read with atomic
 	listRmu          *sync.Mutex         // protects listRempties
 	listRempties     map[string]struct{} // IDs of supposedly empty directories which triggered grouping disable
+	ServiceAccountFiles map[string]int
+	waitChangeSvc    sync.Mutex
+	FileObj          *fs.Object
+	FileName         string
 }
 
 type baseObject struct {
@@ -632,6 +641,13 @@ func (f *Fs) shouldRetry(err error) (bool, error) {
 		if len(gerr.Errors) > 0 {
 			reason := gerr.Errors[0].Reason
 			if reason == "rateLimitExceeded" || reason == "userRateLimitExceeded" {
+				// try with another SA if its path exists
+				if f.opt.ServiceAccountFilePath != "" {
+					f.waitChangeSvc.Lock()
+					f.changeSvc()
+					f.waitChangeSvc.Unlock()
+					return true, err
+				}
 				if f.opt.StopOnUploadLimit && gerr.Errors[0].Message == "User rate limit exceeded." {
 					fs.Errorf(f, "Received upload limit error: %v", err)
 					return false, fserrors.FatalError(err)
@@ -644,6 +660,53 @@ func (f *Fs) shouldRetry(err error) (bool, error) {
 		}
 	}
 	return false, err
+}
+
+// Changing SA file
+func (f *Fs) changeSvc() {
+	opt := &f.opt;
+	// getting list of SA files
+	if opt.ServiceAccountFilePath != "" && len(f.ServiceAccountFiles) == 0 {
+		f.ServiceAccountFiles = make(map[string]int)
+		dir_list, e := ioutil.ReadDir(opt.ServiceAccountFilePath)
+		if e != nil {
+			fmt.Println("read ServiceAccountFilePath Files error")
+		}
+		for i, v := range dir_list {
+			if !strings.HasSuffix(opt.ServiceAccountFilePath, "/") {
+				opt.ServiceAccountFilePath += "/"
+			}
+			filePath := fmt.Sprintf("%s%s", opt.ServiceAccountFilePath, v.Name())
+			if ".json" == path.Ext(filePath) {
+				f.ServiceAccountFiles[filePath] = i
+			}
+		}
+	}
+	// if the list is empty, return
+	if(len(f.ServiceAccountFiles) <= 0){
+		return
+	}
+
+	// randomly choose and exclude one from the list
+	r := rand.Intn(len(f.ServiceAccountFiles))
+	for k := range f.ServiceAccountFiles {
+		if r == 0 {
+			opt.ServiceAccountFile = k
+		}
+		r--
+	}
+	delete(f.ServiceAccountFiles, opt.ServiceAccountFile)
+
+	// new client and svc from selected SA
+	loadedCreds, _ := ioutil.ReadFile(os.ExpandEnv(opt.ServiceAccountFile))
+	opt.ServiceAccountCredentials = string(loadedCreds)
+	oAuthClient, err := getServiceAccountClient(opt, []byte(opt.ServiceAccountCredentials))
+	if err != nil {
+		errors.Wrap(err, "failed to create oauth client from service account")
+	}
+	f.client = oAuthClient
+	f.svc, err = drive.New(f.client)
+	fmt.Println("gclone sa file:", opt.ServiceAccountFile)
 }
 
 // parseParse parses a drive 'url'
@@ -1060,6 +1123,25 @@ func NewFs(name, path string, m configmap.Mapper) (fs.Fs, error) {
 	// Parse config into Options struct
 	opt := new(Options)
 	err := configstruct.Set(m, opt)
+
+	// Parse {id} from path
+	maybeIsFile := false
+	if path != "" && path[0:1] == "{" {
+		idIndex := strings.Index(path, "}")
+		if idIndex > 0 {
+			RootId := path[1:idIndex];
+			name += RootId
+			if len(RootId) == 33 {
+				maybeIsFile = true
+				opt.RootFolderID = RootId;
+			} else {
+				opt.RootFolderID = RootId;
+				opt.TeamDriveID = RootId;
+			}
+			path = path[idIndex+1:]
+		}
+	}
+
 	if err != nil {
 		return nil, err
 	}
@@ -1156,6 +1238,26 @@ func NewFs(name, path string, m configmap.Mapper) (fs.Fs, error) {
 	_, f.importMimeTypes, err = parseExtensions(opt.ImportExtensions)
 	if err != nil {
 		return nil, err
+	}
+
+	if maybeIsFile {
+		file,err := f.svc.Files.Get(opt.RootFolderID).Fields("name","id","size","mimeType").SupportsAllDrives(true).Do()
+		if err == nil {
+			if "application/vnd.google-apps.folder" != file.MimeType && file.MimeType != "" {
+				tempF := *f
+				newRoot := ""
+				tempF.dirCache = dircache.New(newRoot, f.rootFolderID, &tempF)
+				tempF.root = newRoot
+				f.dirCache = tempF.dirCache
+				f.root = tempF.root
+
+				extension, exportName, exportMimeType, isDocument := f.findExportFormat(file)
+				obj, _ := f.newObjectWithExportInfo(file.Name, file, extension, exportName, exportMimeType, isDocument)
+				f.root = "isFile:"+file.Name
+				f.FileObj = &obj
+				return f, fs.ErrorIsFile
+			}
+		}
 	}
 
 	// Find the current root
@@ -1368,6 +1470,10 @@ func (f *Fs) newObjectWithExportInfo(
 // NewObject finds the Object at remote.  If it can't be found
 // it returns the error fs.ErrorObjectNotFound.
 func (f *Fs) NewObject(ctx context.Context, remote string) (fs.Object, error) {
+	if f.FileObj != nil {
+		return *f.FileObj, nil
+	}
+
 	info, extension, exportName, exportMimeType, isDocument, err := f.getRemoteInfoWithExport(ctx, remote)
 	if err != nil {
 		return nil, err
