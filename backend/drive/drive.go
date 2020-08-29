@@ -568,7 +568,7 @@ type Fs struct {
 	grouping         int32               // number of IDs to search at once in ListR - read with atomic
 	listRmu          *sync.Mutex         // protects listRempties
 	listRempties     map[string]struct{} // IDs of supposedly empty directories which triggered grouping disable
-	ServiceAccountFiles map[string]int
+	ServiceAccountFiles []string
 	waitChangeSvc    sync.Mutex
 	FileObj          *fs.Object
 	FileName         string
@@ -668,33 +668,30 @@ func (f *Fs) changeSvc() {
 	opt := &f.opt;
 	// getting list of SA files
 	if opt.ServiceAccountFilePath != "" && len(f.ServiceAccountFiles) == 0 {
-		f.ServiceAccountFiles = make(map[string]int)
 		dir_list, e := ioutil.ReadDir(opt.ServiceAccountFilePath)
 		if e != nil {
 			fmt.Println("read ServiceAccountFilePath Files error")
 		}
-		for i, v := range dir_list {
+		for _, v := range dir_list {
 			filePath := filepath.Join(opt.ServiceAccountFilePath, v.Name())
 			if ".json" == path.Ext(filePath) {
-				f.ServiceAccountFiles[filePath] = i
+				f.ServiceAccountFiles = append(f.ServiceAccountFiles, filePath)
 			}
 		}
+		// make a shuffled list
+		rand.Seed(time.Now().Unix())
+		rand.Shuffle(len(f.ServiceAccountFiles), func(i, j int) {
+			f.ServiceAccountFiles[i], f.ServiceAccountFiles[j] = f.ServiceAccountFiles[j], f.ServiceAccountFiles[i]
+		})
 	}
 	// if the list is empty, return
 	if len(f.ServiceAccountFiles) <= 0 {
 		return
 	}
 
-	// randomly choose and exclude one from the list
-	var newServiceAccountFile string
-	r := rand.Intn(len(f.ServiceAccountFiles))
-	for k := range f.ServiceAccountFiles {
-		if r == 0 {
-			newServiceAccountFile = k
-		}
-		r--
-	}
-	delete(f.ServiceAccountFiles, newServiceAccountFile)
+	// get new service account file
+	newServiceAccountFile := f.ServiceAccountFiles[len(f.ServiceAccountFiles)-1]
+	f.ServiceAccountFiles = f.ServiceAccountFiles[:len(f.ServiceAccountFiles)-1]
 
 	f.changeServiceAccountFile(newServiceAccountFile)
 }
