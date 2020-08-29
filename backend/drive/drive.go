@@ -686,25 +686,17 @@ func (f *Fs) changeSvc() {
 	}
 
 	// randomly choose and exclude one from the list
+	var newServiceAccountFile string
 	r := rand.Intn(len(f.ServiceAccountFiles))
 	for k := range f.ServiceAccountFiles {
 		if r == 0 {
-			opt.ServiceAccountFile = k
+			newServiceAccountFile = k
 		}
 		r--
 	}
-	delete(f.ServiceAccountFiles, opt.ServiceAccountFile)
+	delete(f.ServiceAccountFiles, newServiceAccountFile)
 
-	// new client and svc from selected SA
-	loadedCreds, _ := ioutil.ReadFile(os.ExpandEnv(opt.ServiceAccountFile))
-	opt.ServiceAccountCredentials = string(loadedCreds)
-	oAuthClient, err := getServiceAccountClient(opt, []byte(opt.ServiceAccountCredentials))
-	if err != nil {
-		errors.Wrap(err, "failed to create oauth client from service account")
-	}
-	f.client = oAuthClient
-	f.svc, err = drive.New(f.client)
-	fmt.Println("gclone sa file:", opt.ServiceAccountFile)
+	f.changeServiceAccountFile(newServiceAccountFile)
 }
 
 // parseParse parses a drive 'url'
