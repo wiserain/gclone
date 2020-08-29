@@ -21,6 +21,7 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -673,17 +674,14 @@ func (f *Fs) changeSvc() {
 			fmt.Println("read ServiceAccountFilePath Files error")
 		}
 		for i, v := range dir_list {
-			if !strings.HasSuffix(opt.ServiceAccountFilePath, "/") {
-				opt.ServiceAccountFilePath += "/"
-			}
-			filePath := fmt.Sprintf("%s%s", opt.ServiceAccountFilePath, v.Name())
+			filePath := filepath.Join(opt.ServiceAccountFilePath, v.Name())
 			if ".json" == path.Ext(filePath) {
 				f.ServiceAccountFiles[filePath] = i
 			}
 		}
 	}
 	// if the list is empty, return
-	if(len(f.ServiceAccountFiles) <= 0){
+	if len(f.ServiceAccountFiles) <= 0 {
 		return
 	}
 
