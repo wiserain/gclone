@@ -568,8 +568,9 @@ type Fs struct {
 	grouping         int32               // number of IDs to search at once in ListR - read with atomic
 	listRmu          *sync.Mutex         // protects listRempties
 	listRempties     map[string]struct{} // IDs of supposedly empty directories which triggered grouping disable
-	ServiceAccountFiles []string
-	waitChangeSvc    sync.Mutex
+	useSArotate      bool
+	saFiles          []string
+	waitSAchange     *sync.Mutex
 	FileObj          *fs.Object
 	FileName         string
 }
@@ -642,12 +643,14 @@ func (f *Fs) shouldRetry(err error) (bool, error) {
 		if len(gerr.Errors) > 0 {
 			reason := gerr.Errors[0].Reason
 			if reason == "rateLimitExceeded" || reason == "userRateLimitExceeded" {
-				// try with another SA if its path exists
-				if f.opt.ServiceAccountFilePath != "" {
-					f.waitChangeSvc.Lock()
-					f.changeSvc()
-					f.waitChangeSvc.Unlock()
-					return true, err
+				// try with another SA
+				if f.useSArotate {
+					f.waitSAchange.Lock()
+					saerr := f.changeSAfile()
+					f.waitSAchange.Unlock()
+					if saerr == nil {
+						return true, err
+					}
 				}
 				if f.opt.StopOnUploadLimit && gerr.Errors[0].Message == "User rate limit exceeded." {
 					fs.Errorf(f, "Received upload limit error: %v", err)
@@ -664,36 +667,22 @@ func (f *Fs) shouldRetry(err error) (bool, error) {
 }
 
 // Changing SA file
-func (f *Fs) changeSvc() {
-	opt := &f.opt;
+func (f *Fs) changeSAfile() error {
 	// getting list of SA files
-	if opt.ServiceAccountFilePath != "" && len(f.ServiceAccountFiles) == 0 {
-		dir_list, e := ioutil.ReadDir(opt.ServiceAccountFilePath)
-		if e != nil {
-			fmt.Println("read ServiceAccountFilePath Files error")
+	if len(f.saFiles) < 1 {
+		fs.Debugf("sarot", "service account files exhausted. reloading ...")
+		newSAFiles, err := getServiceAccountFiles(&f.opt)
+		if err != nil {
+			fs.Debugf("sarot", err.Error())
+			return err
 		}
-		for _, v := range dir_list {
-			filePath := filepath.Join(opt.ServiceAccountFilePath, v.Name())
-			if ".json" == path.Ext(filePath) {
-				f.ServiceAccountFiles = append(f.ServiceAccountFiles, filePath)
-			}
-		}
-		// make a shuffled list
-		rand.Seed(time.Now().Unix())
-		rand.Shuffle(len(f.ServiceAccountFiles), func(i, j int) {
-			f.ServiceAccountFiles[i], f.ServiceAccountFiles[j] = f.ServiceAccountFiles[j], f.ServiceAccountFiles[i]
-		})
+		f.saFiles = newSAFiles
+		fs.Debugf("sarot", "keep rotating with a new batch")
 	}
-	// if the list is empty, return
-	if len(f.ServiceAccountFiles) <= 0 {
-		return
-	}
-
-	// get new service account file
-	newServiceAccountFile := f.ServiceAccountFiles[len(f.ServiceAccountFiles)-1]
-	f.ServiceAccountFiles = f.ServiceAccountFiles[:len(f.ServiceAccountFiles)-1]
-
-	f.changeServiceAccountFile(newServiceAccountFile)
+	// apply new service account file
+	newSAFile := f.saFiles[len(f.saFiles)-1]
+	f.saFiles = f.saFiles[:len(f.saFiles)-1]
+	return f.changeServiceAccountFile(newSAFile)
 }
 
 // parseParse parses a drive 'url'
@@ -1047,6 +1036,37 @@ func getServiceAccountClient(opt *Options, credentialsData []byte) (*http.Client
 	return oauth2.NewClient(ctxWithSpecialClient, conf.TokenSource(ctxWithSpecialClient)), nil
 }
 
+func getServiceAccountFiles(opt *Options) ([]string, error) {
+	dirList, err := ioutil.ReadDir(opt.ServiceAccountFilePath)
+	if err != nil {
+		return nil, errors.Wrap(err, "unable to read service_account_file_path")
+	}
+	var saFiles []string
+	for _, v := range dirList {
+		filePath := filepath.Join(opt.ServiceAccountFilePath, v.Name())
+		if path.Ext(filePath) == ".json" {
+			saFiles = append(saFiles, filePath)
+		}
+	}
+	if len(saFiles) == 0 {
+		return nil, fmt.Errorf("unable to locate service account files in \"%s\"", opt.ServiceAccountFilePath)
+	}	
+	// make shuffled
+	rand.Seed(time.Now().Unix())
+	rand.Shuffle(len(saFiles), func(i, j int) {
+		saFiles[i], saFiles[j] = saFiles[j], saFiles[i]
+	})
+	// supply one if not provided
+	if opt.ServiceAccountFile == "" {
+		opt.ServiceAccountFile = saFiles[len(saFiles)-1]
+		saFiles = saFiles[:len(saFiles)-1]
+	}
+	if len(saFiles) == 0 {
+		return nil, fmt.Errorf("not enough service account files in \"%s\"", opt.ServiceAccountFilePath)
+	}
+	return saFiles, nil
+}
+
 func createOAuthClient(opt *Options, name string, m configmap.Mapper) (*http.Client, error) {
 	var oAuthClient *http.Client
 	var err error
@@ -1141,6 +1161,14 @@ func NewFs(name, path string, m configmap.Mapper) (fs.Fs, error) {
 		return nil, errors.Wrap(err, "drive: chunk size")
 	}
 
+	var ServiceAccountFiles []string
+	if opt.ServiceAccountFilePath != "" {
+		ServiceAccountFiles, err = getServiceAccountFiles(opt)
+		if err != nil {
+			fs.Debugf(nil, "SA ratation disabled: %s", err.Error())
+		}
+	}
+
 	oAuthClient, err := createOAuthClient(opt, name, m)
 	if err != nil {
 		return nil, errors.Wrap(err, "drive: failed when making oauth client")
@@ -1170,6 +1198,11 @@ func NewFs(name, path string, m configmap.Mapper) (fs.Fs, error) {
 		CanHaveEmptyDirectories: true,
 		ServerSideAcrossConfigs: opt.ServerSideAcrossConfigs,
 	}).Fill(f)
+	if ServiceAccountFiles != nil {
+		f.useSArotate = true
+		f.saFiles = ServiceAccountFiles
+		f.waitSAchange = new(sync.Mutex)
+	}
 
 	// Create a new authorized Drive client.
 	f.client = oAuthClient
