@@ -233,7 +233,7 @@ a non root folder as its starting point.
 		}, {
 			Name: "service_account_file_path",
 			Help: "Service Account Credentials JSON file path .",
-		},{
+		}, {
 			Name:     "service_account_credentials",
 			Help:     "Service Account Credentials JSON blob\nLeave blank normally.\nNeeded only if you want use SA instead of interactive login.",
 			Hide:     fs.OptionHideConfigurator,
@@ -1136,14 +1136,14 @@ func NewFs(name, path string, m configmap.Mapper) (fs.Fs, error) {
 	if path != "" && path[0:1] == "{" {
 		idIndex := strings.Index(path, "}")
 		if idIndex > 0 {
-			RootId := path[1:idIndex];
-			name += RootId
-			if len(RootId) == 33 {
+			RootID := path[1:idIndex]
+			name += RootID
+			if len(RootID) == 33 {
 				maybeIsFile = true
-				opt.RootFolderID = RootId;
+				opt.RootFolderID = RootID
 			} else {
-				opt.RootFolderID = RootId;
-				opt.TeamDriveID = RootId;
+				opt.RootFolderID = RootID
+				opt.TeamDriveID = RootID
 			}
 			path = path[idIndex+1:]
 		}
@@ -1261,7 +1261,7 @@ func NewFs(name, path string, m configmap.Mapper) (fs.Fs, error) {
 	}
 
 	if maybeIsFile {
-		file,err := f.svc.Files.Get(opt.RootFolderID).Fields("name","id","size","mimeType").SupportsAllDrives(true).Do()
+		file, err := f.svc.Files.Get(opt.RootFolderID).Fields("name", "id", "size", "mimeType").SupportsAllDrives(true).Do()
 		if err == nil {
 			if "application/vnd.google-apps.folder" != file.MimeType && file.MimeType != "" {
 				tempF := *f
@@ -1273,7 +1273,7 @@ func NewFs(name, path string, m configmap.Mapper) (fs.Fs, error) {
 
 				extension, exportName, exportMimeType, isDocument := f.findExportFormat(file)
 				obj, _ := f.newObjectWithExportInfo(file.Name, file, extension, exportName, exportMimeType, isDocument)
-				f.root = "isFile:"+file.Name
+				f.root = "isFile:" + file.Name
 				f.FileObj = &obj
 				return f, fs.ErrorIsFile
 			}
