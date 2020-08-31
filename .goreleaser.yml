@@ -3,6 +3,8 @@ env:
 before:
   hooks:
     - go mod download
+release:
+  draft: true
 builds:
   - ldflags: -s -w
     env:
@@ -24,5 +26,7 @@ archives:
     replacements:
       darwin: osx
     format: zip
+    files:
+      - none*
 checksum:
   name_template: "checksums.txt"
