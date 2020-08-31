@@ -1,41 +1,41 @@
-  
+
 # gclone  
 
-A modified version of the [rclone](//github.com/rclone/rclone) to provide dynamic replacement sa file support for google drive operation
+A modified version of the [rclone](//github.com/rclone/rclone) to implement dynamic replacement of service account files for google drive backend.
 
-## Instructions
+## Installation
 
-### 1. service_account_file_path Configuration
+```bash
+curl -L https://raw.githubusercontent.com/wiserain/gclone/master/install.sh | sudo bash
+```
 
-add `service_account_file_path` Configuration.For dynamic replacement service_account_file(sa file). Replace configuration when `rateLimitExceeded` error occurs
-`rclone.conf` example:  
+## Usage
+
+### Dynamic replacement of service account files
+
+Set `service_account_file_path` in your rclone.conf. Everytime when `rateLimitExceeded` or `userRateLimitExceeded` error occurs, gclone tries to replace with another service account file in the path in random order.
 
 ```text
 [gc]
-type = drive  
-scope = drive  
-service_account_file = /root/accounts/1.json  
-service_account_file_path = /root/accounts/  
-root_folder_id = root  
+type = drive
+scope = drive
+service_account_file_path = /path/to/service/account/files
 ```
 
-`/root/accounts/` Folder contains multiple access and edit permissions ***service account file(*.json)***.  
-  
-### 2. Support incoming id
+### Support folder/file id
 
-If the original rclone is across team disks or shared folders, multiple configuration drive letters are required for operation.
-gclone supports incoming id operation
+gclone supports folder/file id in src/dst path.
 
 ```bash
 gclone copy gc:{folde_id1} gc:{folde_id2}  --drive-server-side-across-configs
 ```
 
-folde_id1 can be:Common directory, shared directory, team disk. 
+folde_id can be a common directory, shared directory, shared drive.
 
 ```bash
 gclone copy gc:{folde_id1} gc:{folde_id2}/media/  --drive-server-side-across-configs
 ```
 
 ```bash
-gclone copy gc:{share_fiel_id} gc:{folde_id2}  --drive-server-side-across-configs
+gclone copy gc:{share_file_id} gc:{folde_id2}  --drive-server-side-across-configs
 ```
