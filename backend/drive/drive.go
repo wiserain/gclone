@@ -1138,7 +1138,7 @@ func NewFs(name, path string, m configmap.Mapper) (fs.Fs, error) {
 		if idIndex > 0 {
 			RootID := path[1:idIndex]
 			name += RootID
-			if len(RootID) == 33 {
+			if len(RootID) == 33 || len(RootID) == 28 {
 				maybeIsFile = true
 				opt.RootFolderID = RootID
 			} else {
