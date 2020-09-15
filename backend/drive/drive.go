@@ -246,6 +246,11 @@ a non root folder as its starting point.
 			Help:     "Minimum time to sleep between change service account.",
 			Hide:     fs.OptionHideConfigurator,
 			Advanced: true,
+		}, { // mod
+			Name:     "service_account_per_file",
+			Default:  false,
+			Help:     "Changes service account for each file copy.",
+			Advanced: true,
 		}, {
 			Name:     "service_account_credentials",
 			Help:     "Service Account Credentials JSON blob\nLeave blank normally.\nNeeded only if you want use SA instead of interactive login.",
@@ -526,6 +531,7 @@ type Options struct {
 	ServiceAccountFile        string               `config:"service_account_file"`
 	ServiceAccountFilePath    string               `config:"service_account_file_path"` // Mod
 	ServiceAccountMinSleep    fs.Duration          `config:"service_account_min_sleep"` // Mod
+	ServiceAccountPerFile     bool                 `config:"service_account_per_file"` // Mod
 	ServiceAccountCredentials string               `config:"service_account_credentials"`
 	TeamDriveID               string               `config:"team_drive"`
 	AuthOwnerOnly             bool                 `config:"auth_owner_only"`
@@ -2511,6 +2517,12 @@ func (f *Fs) Copy(ctx context.Context, src fs.Object, remote string) (fs.Object,
 
 	var info *drive.File
 	err = f.pacer.Call(func() (bool, error) {
+		// mod
+		if f.useSArotate && f.opt.ServiceAccountPerFile {
+			f.changeSAmu.Lock()
+			defer f.changeSAmu.Unlock()
+			f.changeSAfile()
+		}
 		info, err = f.svc.Files.Copy(id, createInfo).
 			Fields(partialFields).
 			SupportsAllDrives(true).
@@ -2947,7 +2959,7 @@ func (f *Fs) changeChunkSize(chunkSizeString string) (err error) {
 }
 
 func (f *Fs) changeServiceAccountFile(file string) (err error) {
-	fs.Debugf(nil, "Changing Service Account File from %s to %s", f.opt.ServiceAccountFile, file)
+	fs.Debugf(nil, "Changing Service Account File from %s to %s", filepath.Base(f.opt.ServiceAccountFile), filepath.Base(file)) // mod - shorter debug log
 	if file == f.opt.ServiceAccountFile {
 		return nil
 	}
