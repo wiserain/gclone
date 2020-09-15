@@ -22,7 +22,7 @@ func init() {
 
 var commandDefinition = &cobra.Command{
 	Use:   "copy source:path dest:path",
-	Short: `Copy files from source to dest, skipping already copied`,
+	Short: `Copy files from source to dest, skipping already copied.`,
 	Long: `
 Copy the source to the destination.  Doesn't transfer
 unchanged files, testing by size and modification time or
@@ -71,14 +71,13 @@ recently very efficiently like this:
 
     rclone copy --max-age 24h --no-traverse /path/to/src remote:
 
-**Note**: Use the ` + "`-P`" + `/` + "`--progress`" + ` flag to view real-time transfer statistics
+**Note**: Use the ` + "`-P`" + `/` + "`--progress`" + ` flag to view real-time transfer statistics.
+
+**Note**: Use the ` + "`--dry-run` or the `--interactive`/`-i`" + ` flag to test without copying anything.
 `,
 	Run: func(command *cobra.Command, args []string) {
 		cmd.CheckArgs(2, 2, command, args)
 		fsrc, srcFileName, fdst := cmd.NewFsSrcFileDst(args)
-		if len(fsrc.Root()) > 7 && "isFile:" == fsrc.Root()[0:7] {
-			srcFileName = fsrc.Root()[7:]
-		}
 		cmd.Run(true, true, command, func() error {
 			if srcFileName == "" {
 				return sync.CopyDir(context.Background(), fdst, fsrc, createEmptySrcDirs)
