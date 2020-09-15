@@ -10,7 +10,7 @@ import (
 	_ "github.com/rclone/rclone/backend/cache"
 	_ "github.com/rclone/rclone/backend/chunker"
 	_ "github.com/rclone/rclone/backend/crypt"
-	_ "github.com/rclone/rclone/backend/drive"
+	_ "github.com/wiserain/gclone/backend/drive"	// mod
 	_ "github.com/rclone/rclone/backend/dropbox"
 	_ "github.com/rclone/rclone/backend/fichier"
 	_ "github.com/rclone/rclone/backend/ftp"
