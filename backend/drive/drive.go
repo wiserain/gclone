@@ -3335,6 +3335,22 @@ func (f *Fs) Command(ctx context.Context, name string, arg []string, opt map[str
 			dir = arg[0]
 		}
 		return f.unTrashDir(ctx, dir, true)
+	case "getid":
+		if len(arg) == 0 {
+			// assuming it is a dir
+			id, err := f.dirCache.FindDir(ctx, "", false)
+			if err != nil {
+				return nil, err
+			}
+			return shortcutID(id), nil
+		} else {
+			// it should be a file
+			o, err := f.NewObject(ctx, arg[0])
+			if err != nil {
+				return nil, err
+			}
+			return shortcutID(o.(fs.IDer).ID()), nil
+		}
 	default:
 		return nil, fs.ErrorCommandNotFound
 	}

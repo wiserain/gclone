@@ -10,6 +10,6 @@ import (
 )
 
 func main() {
-	fs.Version = "v1.53.1-mod1.4.1"
+	fs.Version = "v1.53.1-mod1.4.2"
 	cmd.Main()
 }
