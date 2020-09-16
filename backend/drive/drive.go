@@ -2519,8 +2519,6 @@ func (f *Fs) Copy(ctx context.Context, src fs.Object, remote string) (fs.Object,
 	err = f.pacer.Call(func() (bool, error) {
 		// mod
 		if f.useSArotate && f.opt.ServiceAccountPerFile {
-			f.changeSAmu.Lock()
-			defer f.changeSAmu.Unlock()
 			f.changeSAfile()
 		}
 		info, err = f.svc.Files.Copy(id, createInfo).
